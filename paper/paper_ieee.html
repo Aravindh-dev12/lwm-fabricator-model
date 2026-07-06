@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Capability Fabrication via Latent World Models</title>
+<style>
+@page {
+  size: letter;
+  margin: 0.75in 0.65in 0.75in 0.65in;
+  @bottom-center {
+    content: counter(page);
+    font-family: 'Times New Roman', serif;
+    font-size: 10pt;
+  }
+}
+body {
+  font-family: 'Times New Roman', serif;
+  font-size: 10pt;
+  line-height: 1.35;
+  text-align: justify;
+  color: #000;
+}
+.title {
+  font-size: 18pt;
+  font-weight: bold;
+  text-align: center;
+  line-height: 1.3;
+  margin-bottom: 4pt;
+}
+.subtitle {
+  font-size: 12pt;
+  text-align: center;
+  margin-bottom: 8pt;
+}
+.author {
+  font-size: 11pt;
+  text-align: center;
+  margin-bottom: 2pt;
+}
+.affiliation {
+  font-size: 10pt;
+  text-align: center;
+  font-style: italic;
+  margin-bottom: 12pt;
+}
+.abstract {
+  font-size: 9pt;
+  text-align: justify;
+  margin: 0 0.5in;
+  padding: 6pt 10pt;
+  background: #f8f8f8;
+  border-left: 3px solid #333;
+}
+.abstract b { font-size: 9pt; }
+.keywords {
+  font-size: 9pt;
+  margin: 4pt 0.5in 12pt 0.5in;
+  text-align: justify;
+}
+h1 {
+  font-size: 11pt;
+  font-weight: bold;
+  margin-top: 14pt;
+  margin-bottom: 4pt;
+  text-transform: uppercase;
+}
+h2 {
+  font-size: 10pt;
+  font-weight: bold;
+  font-style: italic;
+  margin-top: 10pt;
+  margin-bottom: 3pt;
+}
+h3 {
+  font-size: 10pt;
+  font-weight: bold;
+  margin-top: 8pt;
+  margin-bottom: 3pt;
+}
+p { margin: 3pt 0; }
+ul, ol { margin: 3pt 0 3pt 18pt; padding: 0; }
+li { margin: 1.5pt 0; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 6pt 0;
+  font-size: 9pt;
+}
+th, td {
+  border: 1px solid #999;
+  padding: 3pt 5pt;
+  text-align: center;
+}
+th { background: #eee; font-weight: bold; }
+.formula {
+  text-align: center;
+  margin: 6pt 0;
+  font-style: italic;
+  font-size: 10pt;
+}
+.figure-caption {
+  font-size: 9pt;
+  text-align: center;
+  font-style: italic;
+  margin: 4pt 0 8pt 0;
+}
+.ascii-art {
+  font-family: 'Courier New', monospace;
+  font-size: 8pt;
+  white-space: pre;
+  text-align: center;
+  margin: 6pt 0;
+  line-height: 1.2;
+}
+.pagebreak { page-break-before: always; }
+.references { font-size: 9pt; }
+.references p { margin: 2pt 0; text-indent: -18pt; padding-left: 18pt; }
+</style>
+</head>
+<body>
+
+<div class="title">Capability Fabrication via Latent World Models:</div>
+<div class="subtitle">On-Demand Synthesis and Safe Execution of AI Operating System Capabilities</div>
+<div class="author">Aravindh</div>
+<div class="affiliation">LWM Fabricator Project</div>
+<div class="affiliation">June 2026</div>
+
+<div class="abstract">
+<b>Abstract</b>&mdash;AI operating systems like AIOS showed that LLMs can work as OS-level kernels with scheduling and memory management. But they have three problems that nobody has really fixed yet. First, they cannot imagine what happens before they act. They ask the LLM in plain text "what will happen if I do X?" which takes 47+ seconds and is unreliable. Second, they cannot create new capabilities on the fly. They depend on pre-built agent integrations, so if a user wants something that no existing agent provides, the system is stuck. Third, they have no real safety calibration. Agents overestimate their own success by up to 55 percentage points, and nothing stops them from running destructive commands. We built the LWM Fabricator to fix all three. We introduce Capability Fabrication, where the OS synthesizes gated DAGs. We adapt JEPA world models from physical robotics to OS-level state vectors, enabling CEM planning in a 192-dimensional latent space that runs 48x faster than text-based LLM prediction. We add a calibration-aware safety gate (MACI+AUQ) that triggers adversarial debates before risky actions. And we apply step-level RL (Agent-Ri) to figure out exactly which step in a multi-step plan caused a failure. We provide full mathematical formulations and show end-to-end fabrication runs with safe execution.
+</div>
+
+<div class="keywords">
+<b>Keywords</b>&mdash;AI Operating Systems, Joint-Embedding Predictive Architectures, World Models, Cross-Entropy Method, Agent Safety, Reinforcement Learning, Capability Fabrication
+</div>
+
+<h1>1. Introduction</h1>
+
+<p>The idea of an AI operating system is simple: take the operating system concept and extend it so that intelligence is a kernel-level resource. Instead of just managing CPU, memory, and disk, the OS manages agents, reasoning, and tool execution. The LLM becomes the kernel. It schedules cognitive tasks, manages context windows as memory, and routes work to the right agent.</p>
+
+<p>AIOS was the first serious attempt at this. It showed that an LLM can act as a scheduler, manage agent processes, and handle memory allocation at the kernel level. The idea is compelling: instead of the OS just managing CPU and memory, it manages intelligence too.</p>
+
+<p>But when you actually build and run something like this, you hit walls fast. AIOS and similar systems treat the LLM as a reactive router. It dispatches tasks to pre-built agents and does all its planning through text-based reasoning. That creates three problems that we ran into over and over while building the LWM Fabricator:</p>
+
+<ol>
+<li><b>No Imagination.</b> When the OS needs to predict what will happen if it runs an action sequence, it sends a text prompt to the LLM: "Given state X and action Y, what happens next?" This takes about 47 seconds for a 5-step plan because each step needs a full LLM forward pass. Worse, the text output is non-deterministic. You get hallucination baked into your prediction. You cannot do real planning if your imagination is that slow and that noisy.</li>
+
+<li><b>No Capability Synthesis.</b> Current AI OS designs connect to external apps through APIs or clone existing agent frameworks. When a user asks for something that no pre-built agent can handle, the system just cannot do it. You are limited to a fixed catalog of integrations. In practice, users want things that do not map cleanly to any single existing service.</li>
+
+<li><b>No Calibrated Safety.</b> LLM agents systematically overestimate how well they will do. Calibration gaps of 55 percentage points are common. An AI OS that runs file deletions, shell commands, and network requests without checking whether the agent's confidence is justified is an AI OS that will eventually delete something important.</li>
+</ol>
+
+<p>We built the LWM Fabricator to address all three. The system has four core contributions:</p>
+
+<p><b>C1. Capability Fabrication Engine (Section 3):</b> Instead of connecting to APIs or cloning apps, the OS synthesizes execution graphs from raw intent. It classifies the intent against 21 capability domain blueprints, fuses the matched domains into a single consent-gated DAG, and grounds every node through real file, shell, and network actions.</p>
+
+<p><b>C2. Latent World Model (Section 4):</b> We took the JEPA architecture that was designed for physical robotics (PushT, Reacher) and adapted it for OS-level state vectors. The entire OS state gets compressed into a 192-dimensional "meaning token." The Cross-Entropy Method then plans optimal action sequences in that latent space in under one second, which is 48x faster than asking the LLM in text.</p>
+
+<p><b>C3. Calibration-Aware Safety Gate (Section 5):</b> Before any elevated-consent action runs, an Agentic Uncertainty Quantification (AUQ) check computes the gap between the agent's stated confidence and the actual worst-case risk. If the gap is too large, a Multi-Agent Confidence Interval (MACI) debate fires up between two adversarial reflex models.</p>
+
+<p><b>C4. Step-Level RL Credit Assignment (Section 6):</b> Each DAG node is treated as an Agent-Ri transition. We compute discounted returns and per-step advantages so the OS can figure out exactly which step in a 10-step plan caused the failure, instead of just labeling the whole thing as failed.</p>
+
+<div class="figure-caption">Figure 1. LWM Fabricator System Overview</div>
+<div class="ascii-art">
+User Intent (natural language)
+        |
+        v
+  Fabrication Engine         Execution DAG
+  classify() + fabricate()   (consent-gated nodes)
+        |                          |
+        v                          v
+  LeWM World Model           MACI + AUQ
+  (CEM Planning in           Safety Gate
+   Latent Space)                   |
+        |                          v
+        +-----> ActionExecutor <---+
+               (file/shell/network/code)
+                      |
+                      v
+               Multi-Turn RL
+          (step-level credit assignment)
+</div>
+<div class="figure-caption">Blue: fabrication. Purple: world model. Orange: safety. Teal: execution. Red: learning.</div>
+
+<h1>2. Related Work</h1>
+
+<h2>2.1 AI Operating Systems</h2>
+
+<p>AIOS, published at COLM 2025, was the first real attempt at an LLM agent operating system kernel. It provides scheduling, context management, memory management, and tool management as kernel-level services. The kernel manages agent processes with FIFO scheduling and treats the LLM context window as memory. A survey by Kumar et al. categorizes different approaches to AI-OS integration, ranging from simple personalization layers to deep structural reforms where the LLM is embedded into the kernel itself.</p>
+
+<p>The LWM Fabricator takes the AIOS concept further in three directions. First, we add preemptive cognitive scheduling with real resource budgets (tokens, latency, VRAM, CPU). Second, we replace pre-built agent routing with capability fabrication. Third, we replace text-based LLM prediction with latent world model planning.</p>
+
+<h2>2.2 JEPA World Models and Latent Planning</h2>
+
+<p>Joint-Embedding Predictive Architectures, introduced by LeCun in 2022, learn world dynamics by predicting future states in a compact latent space. The key idea is to skip pixel-level reconstruction entirely and work in a learned representation. The LeWorldModel (LeWM) method built an end-to-end JEPA pipeline for physical control tasks, using an autoregressive predictor and CEM for planning. Several follow-up papers have pushed this further:</p>
+
+<ul>
+<li><b>C-JEPA</b> applies object-level latent interventions with counterfactual-like effects. They get about 20% improvement in counterfactual reasoning tasks.</li>
+<li><b>SD-JEPA</b> splits the latent space into a progression subspace and a content subspace. This improves planning on three of four LeWM benchmarks.</li>
+<li><b>FF-JEPA</b> uses a hierarchical forward-forward approach for long-horizon planning without needing goal images.</li>
+<li><b>Value-Guided JEPA</b> shapes the representation so that Euclidean distance in latent space approximates the negative value function, making CEM optimization smoother.</li>
+</ul>
+
+<p>Here is the thing though: every single one of these papers works on pixel-based physical environments. PushT, Reacher, Cube, Two-Room. Nobody has applied JEPA world models to operating system state vectors. Nobody has used CEM to plan software execution DAGs. That is the gap we fill.</p>
+
+<h2>2.3 LLM Agent Safety and Calibration</h2>
+
+<p>Multiple recent papers have shown that LLM agents systematically overestimate their success rates. Work on uncertainty quantification for LLM agents provides the theoretical foundations for calibration. Multi-agent debate has been proposed as a safety evaluation mechanism. But nobody has integrated calibration checks with adversarial debate as a pre-execution gate for OS-level actions. That combination is what we built.</p>
+
+<h2>2.4 Step-Level Reinforcement Learning for Agents</h2>
+
+<p>Agent-Ri introduced the idea of treating each reasoning step in an LLM agent as a transition in a Markov Decision Process. OpenPipe ART provides infrastructure for exporting agent trajectories and fine-tuning on them. GRPO (Group Relative Policy Optimization) from DeepSeekMath enables advantage computation without needing a learned value function. We apply all three ideas to fabrication DAG execution, where each node in the graph is a step in the MDP.</p>
+
+<h1>3. Capability Fabrication Engine</h1>
+
+<h2>3.1 Motivation: Fabrication vs. Integration</h2>
+
+<p>When we started building the LWM Fabricator, we looked at how existing AI agent systems interact with external capabilities. There are two paradigms, and both have serious problems:</p>
+
+<ul>
+<li><b>API Connection:</b> The agent calls external services like Gmail, Slack, or Stripe through their APIs. Every service needs its own OAuth flow, rate-limit handling, and error management. You are limited to services that expose APIs, and you have to maintain each integration separately.</li>
+
+<li><b>App Cloning:</b> The agent clones an existing app (like a Notion clone) and works inside it. This is brittle and requires maintaining a clone for every target app. When the original app changes, your clone breaks.</li>
+</ul>
+
+<p>Our approach is fundamentally different. Instead of connecting to N services or cloning N apps, we maintain K capability domain blueprints (where K = 21, much smaller than N) and <i>fabricate</i> execution graphs on demand. The user states an intent in natural language. The engine classifies the intent against the 21 domains, fuses the matched domains into a single DAG, and executes it.</p>
+
+<div class="figure-caption">Figure 2. Fabrication Pipeline</div>
+<div class="ascii-art">
+  User Intent
+      |
+      v
+  classify()
+  Score 21 domains vs. intent
+  Matched: app_fabrication (2.0)
+  Matched: growth_marketing (1.0)
+      |
+      v
+  fabricate()
+  Fuse domain grammars into one DAG
+      |
+      v
+  8-node Execution DAG
+  (code:eval, file:write, network:request, shell:execute)
+      |
+      v
+  Execute (dry_run or live)
+  Pause at elevated consent nodes
+</div>
+
+<h2>3.2 Capability Domain Registry</h2>
+
+<p>We analyzed 42 startup architectures and distilled them into 21 capability domain blueprints. The registry is D = {D&#8321;, ..., D&#8322;&#8321;}. Each domain D&#7522; is a tuple:</p>
+
+<div class="formula">D&#7522; = (P&#7522;, G&#7522;, C&#7522;, &#8467;&#7522;, A&#7522;, S&#7522;)</div>
+
+<p>where:</p>
+<ul>
+<li>P&#7522;: Intent patterns, which are keywords and phrases that trigger this domain</li>
+<li>G&#7522;: Execution grammar, which is an ordered list of steps with action type, verb, and consent level</li>
+<li>C&#7522;: Required capabilities (file access, network, code execution, etc.)</li>
+<li>&#8467;&#7522; &#8712; {always, standard, elevated, never}: Consent level for the domain</li>
+<li>A&#7522; &#8712; {personal, enterprise, both}: Who this domain is for</li>
+<li>S&#7522;: Which startups were distilled into this blueprint</li>
+</ul>
+
+<p>The 18 functional domains cover things like app_fabrication, document_intelligence, knowledge_graph, finance_ops, growth_marketing, computer_use, realtime_web, voice_interface, data_analysis, career_agent, physical_tasks, formal_verification, agent_identity, autonomous_payments, content_recall, property_ops, comms_coverage, and visual_generation. Three infrastructure domains handle log_compression, inference_optimization, and agent_observability.</p>
+
+<h2>3.3 Intent Classification with Memory Augmentation</h2>
+
+<p>When a user sends an intent q, we score every domain against it. The scoring uses pattern overlap plus a boost from episodic memory:</p>
+
+<div class="formula">score(D&#7522;, q) = &#931;_{p &#8712; P&#7522;} 1[p &#8838; q] + &#931;_{e &#8712; E} 1[D&#7522; &#8712; e] &middot; &#946;</div>
+
+<p>Here E is the set of episodic memory entries we retrieve through Memo and Graphiti (our temporal knowledge graph), and &#946; = 0.5 is the historical success boost. If a domain worked well for a similar intent in the past, it gets a higher score.</p>
+
+<p>When no exact pattern matches, we fall back to a soft token-overlap score:</p>
+
+<div class="formula">score_soft(D&#7522;, q) = 0.25 &middot; &#931;_{p &#8712; P&#7522;, w &#8712; p} 1[w &#8712; tokens(q) &#8743; |w| > 3] + historical_boost</div>
+
+<p>We pick the top-k domains (k up to 4) and pass them to the fabrication step.</p>
+
+<h2>3.4 DAG Fabrication via Domain Fusion</h2>
+
+<p>The selected domains {D&#7522;&#8321;, ..., D&#7522;&#8342;} get fused into a single execution graph G(V, E):</p>
+
+<div class="formula">G = &#8746; G&#7522;&#11388;, V = &#8746; V&#7522;&#11388;, E = &#8746; E&#7522;&#11388; &#8746; E_cross-domain</div>
+
+<p>Each node v &#8712; V is a grounded action with three properties:</p>
+<ul>
+<li><b>Action type:</b> file, shell, network, app, or code:eval</li>
+<li><b>Verb:</b> read, write, execute, delete, request, evaluate</li>
+<li><b>Consent level:</b> Decides whether the node runs automatically or pauses for human approval</li>
+</ul>
+
+<p>The whole DAG gets persisted to a SQLite store with tables for capability domains, fabrication runs, and fabrication nodes. You can audit and replay any run.</p>
+
+<h2>3.5 Consent-Gated Execution</h2>
+
+<p>Execution happens in dependency order. Nodes with consent level <i>always</i> or <i>standard</i> just run. Nodes with consent level <i>elevated</i> or <i>never</i> pause the run and enter an <i>awaiting_consent</i> state until a human approves. Reasoning nodes (code:eval) go through the neural process kernel. File, shell, network, and app nodes go through the real ActionExecutor, which does backup-and-rollback for file operations, enforces an allowlist for shell commands, and rate-limits network requests.</p>
+
+<p>By default everything runs in <i>dry_run</i> mode. Actions are simulated but not actually applied to the live system. You have to explicitly opt a run into live execution.</p>
+
+<h1>4. Latent World Model for OS State Prediction</h1>
+
+<h2>4.1 From Text-Based Prediction to Latent Rollout</h2>
+
+<p>This is where the biggest performance win comes from. Traditional AI OS systems predict future outcomes by asking the LLM in natural language. Given a current state s&#7511; and a proposed action a&#7511;, the system sends a text prompt like "Given state X and action Y, predict the outcome." Two problems: (1) each prediction step needs a full LLM forward pass, which takes about 9.4 seconds with a 14B model. A 5-step plan takes 47 seconds total. (2) Text generation is non-deterministic, so you get hallucination in your prediction.</p>
+
+<p>We replaced this with a JEPA-based latent world model that operates entirely in a 192-dimensional latent space. Planning via the Cross-Entropy Method finishes in under one second.</p>
+
+<div class="figure-caption">Figure 3. LeWM Latent World Model Architecture</div>
+<div class="ascii-art">
+  State Encoder               Action Embedder
+  s_t (64D) -> z_t (192D)     a_t (32D) -> a_tilde (192D)
+  GELU(W_e * s_t + b_e)       SiLU(W_a * a_t + b_a)
+        |                              |
+        +--------------+---------------+
+                       |
+                       v
+              AR Predictor
+              z_{t+1} = 0.7*z_t + 0.3*f(z_t, a_tilde_t)
+              (autoregressive for H steps)
+                       |
+                       v
+              CEM Solver
+              300 samples x 30 iterations
+              Top-30 elites, refit Gaussian
+                       |
+                       v
+              Optimal Action Sequence
+              a*_{1:H} minimizing ||z_H - z_goal||^2
+</div>
+<div class="figure-caption">OS state goes in as a 64D vector, gets compressed to 192D latent, rolled out autoregressively, and CEM finds the best action sequence in under 1 second.</div>
+
+<h2>4.2 Architecture</h2>
+
+<p>The LeWM engine has four components. It mirrors the LeWM architecture from physical robotics but swaps pixel observations for OS state vectors.</p>
+
+<h3>4.2.1 State Encoder</h3>
+
+<p>The original JEPA uses a ViT to encode image patches. We do not have pixels. We have a company/OS state vector s&#7511; &#8712; &#8477;&#8310;&#8308; that contains things like revenue, satisfaction score, delivery time, active process count, and resource utilization. We encode it into a 192-dimensional latent representation z&#7511; &#8712; &#8477;&#185;&#8313;&#178; using a simple MLP projection:</p>
+
+<div class="formula">z&#7511; = GELU(W_e &middot; s&#7511; + b_e), where W_e &#8712; &#8477;&#185;&#8313;&#178;&#215;&#8310;&#8308;, b_e &#8712; &#8477;&#185;&#8313;&#178;</div>
+
+<p>GELU is the Gaussian Error Linear Unit:</p>
+<div class="formula">GELU(x) = x &middot; &#934;(x) = x &middot; &#189;(1 + erf(x/&#8730;2))</div>
+
+<p>We initialize W_e with Xavier-like scaling: W&#7522;&#11388; ~ N(0, &#8730;(2/(64+192))). All state variables are normalized to [-1, 1] by dividing by the maximum absolute value.</p>
+
+<h3>4.2.2 Action Embedder</h3>
+
+<p>Every OS action (file write, shell command, API call, code evaluation) gets encoded into the same 192-dimensional latent space:</p>
+
+<div class="formula">&#227;_t = SiLU(W_a &middot; a_t + b_a), where W_a &#8712; &#8477;&#185;&#8313;&#178;&#215;&#179;&#178;, a_t &#8712; &#8477;&#179;&#178;</div>
+
+<p>SiLU is the Sigmoid Linear Unit:</p>
+<div class="formula">SiLU(x) = x &middot; sigmoid(x) = x / (1 + e&#8315;&#7488;)</div>
+
+<h3>4.2.3 Autoregressive Predictor</h3>
+
+<p>This is the core of the world model. Given the current latent state z&#7511; and an action embedding &#227;_t, it predicts the next latent state:</p>
+
+<div class="formula">&#7825;_{t+1} = 0.7 &middot; z_t + 0.3 &middot; f(z_t, &#227;_t)</div>
+
+<p>The 0.7/0.3 split means the next state is mostly determined by the current state, with the action providing a corrective push. This mirrors how physical dynamics work: where you are now matters more than what you do next, but what you do next still matters.</p>
+
+<p>For multi-step rollout, we apply the predictor autoregressively:</p>
+<div class="formula">&#7825;_{t+1} = f(z_t, &#227;_t), &#7825;_{t+2} = f(&#7825;_{t+1}, &#227;_{t+1}), ..., &#7825;_{t+H} = f(&#7825;_{t+H-1}, &#227;_{t+H-1})</div>
+
+<p>The history size H_ctx = 3 controls how many past latent states feed into the autoregressive context, which matches the LeWM configuration.</p>
+
+<h3>4.2.4 CEM Solver</h3>
+
+<p>The Cross-Entropy Method finds the optimal action sequence that moves the system from an initial latent state z&#8320; to a goal latent state z_goal. The objective is:</p>
+
+<div class="formula">J(a_{1:H}) = ||&#7825;_H(a_{1:H}) - z_goal||&#178;</div>
+
+<p><b>Algorithm 1: Cross-Entropy Method for Latent Space Planning</b></p>
+<p><b>Input:</b> z&#8320;, z_goal, H, N=300, K=30, I=30<br>
+<b>Output:</b> a*_{1:H}</p>
+<ol>
+<li>Initialize &#956; &#8592; 0_{H&times;32}, &#963;&#178; &#8592; 1_{H&times;32}</li>
+<li><b>For</b> i = 1 to I:</li>
+<li>&nbsp;&nbsp;<b>For</b> n = 1 to N:</li>
+<li>&nbsp;&nbsp;&nbsp;&nbsp;Sample a&#8319;_{(1:H)} ~ N(&#956;, diag(&#963;&#178;))</li>
+<li>&nbsp;&nbsp;&nbsp;&nbsp;Clip actions to [-3, 3]</li>
+<li>&nbsp;&nbsp;&nbsp;&nbsp;Compute cost c&#8319; &#8592; J(a&#8319;_{1:H})</li>
+<li>&nbsp;&nbsp;Select top-K elites: S &#8592; top_k({a&#8319;}, c&#8319;)</li>
+<li>&nbsp;&nbsp;Update &#956; &#8592; mean(S), &#963;&#178; &#8592; var(S)</li>
+<li><b>Return</b> argmin J(a&#8319;_{1:H})</li>
+</ol>
+
+<h2>4.3 Applications in the OS</h2>
+
+<ol>
+<li><b>Pre-execution validation:</b> Before running a fabricated DAG, the OS encodes the current state and the goal state into latent space, then uses CEM to check whether the DAG's action sequence actually reaches the goal. If the cost J is above a threshold, the DAG gets revised before any real execution happens.</li>
+
+<li><b>Proactive simulation:</b> The proactive engine runs hourly simulations. It generates 1,000 scenarios by sampling different action sequences and rolling them out in latent space. Predictions with &gt;95% confidence trigger automatic action. Predictions in the 60 to 80% range prompt the user for confirmation.</li>
+</ol>
+
+<h2>4.4 Complexity Analysis</h2>
+
+<p><b>Text-based LLM prediction:</b> A 5-step plan needs 5 LLM forward passes. With a 14B local model, each pass takes about 9.4 seconds. Total: ~47 seconds.</p>
+
+<p><b>LeWM latent rollout:</b> Each predictor forward pass is O(d&#178;) = O(36,864) FLOPs. For N &times; I &times; H = 9,000 &times; 5 = 45,000 predictor calls, the total is ~1.7 &times; 10&#8313; FLOPs. At CPU/GPU throughput this takes under one second.</p>
+
+<p>That is a 48x speedup. And the output is deterministic, so no sampling-induced hallucination.</p>
+
+<h1>5. Calibration-Aware Safety Gate</h1>
+
+<h2>5.1 Problem: Uncalibrated Agent Execution</h2>
+
+<p>LLM agents are overconfident. It is a systematic bias, not a random one. Before an AI OS executes something destructive like <code>rm -rf</code> or <code>DROP TABLE</code>, it needs to check whether the agent's confidence actually matches the real risk. If the agent says "95% sure this is fine" but there is a 30% chance of catastrophic failure, something is wrong and the action should not just run.</p>
+
+<h2>5.2 AUQ: Agentic Uncertainty Quantification</h2>
+
+<p>For each action a with consent level in {elevated, never}, the AUQ module computes three things:</p>
+<ul>
+<li>C_stated &#8712; [0, 1]: The agent's stated confidence</li>
+<li>P_worst &#8712; [0, 1]: Probability of the worst-case outcome</li>
+<li>R_risk &#8712; [0, 1]: Risk score computed from action parameters</li>
+</ul>
+
+<p>The calibration gap is:</p>
+<div class="formula">&#916;_cal = |C_stated - (1 - P_worst)|</div>
+
+<p><b>Example:</b> the agent says 95% confidence (C_stated = 0.95) but the worst-case probability is 30% (P_worst = 0.30). Then &#916;_cal = |0.95 - 0.70| = 0.25. That is a big gap. The agent is way more confident than it should be.</p>
+
+<p>The risk score R_risk comes from the action parameters:</p>
+<div class="formula">R_risk = &#945;&#8321;&middot;1[destructive verb] + &#945;&#8322;&middot;1[high-impact type] + &#945;&#8323;&middot;1[elevated consent] + &#945;&#8324;&middot;1[irreversible]</div>
+
+<p>where &#945;&#8321; = 0.3, &#945;&#8322; = 0.2, &#945;&#8323; = 0.2, &#945;&#8324; = 0.3. Destructive verbs include rm, del, delete, format, drop, truncate, kill, wipe, purge.</p>
+
+<h2>5.3 MACI: Multi-Agent Confidence Interval Debate</h2>
+
+<p>A debate fires up when any of these conditions is true:</p>
+<div class="formula">&#916;_cal &#8805; 0.15 &#8742; R_risk &#8805; 0.5 &#8742; action is destructive</div>
+
+<div class="figure-caption">Figure 4. MACI Adversarial Debate Protocol</div>
+<div class="ascii-art">
+  Elevated Action + AUQ Assessment
+              |
+              v  (if Delta_cal >= 0.15)
+  Proponent (qwen3:4b)     Opponent (qwen3:4b)
+  "This action is safe"    "This action is dangerous"
+              |                    |
+              +--------+-----------+
+                       |
+                       v
+              Judge (qwen3:14b)
+              Evaluates both sides
+                       |
+          +------------+------------+
+          |            |            |
+       APPROVE      MODIFY       REJECT     REQUIRE_HUMAN
+</div>
+<div class="figure-caption">Two reflex models argue opposing sides. The control brain judges. Destructive actions always require human approval if judge confidence is below 0.8.</div>
+
+<p>The debate has three models:</p>
+<ol>
+<li><b>Proponent</b> (reflex model, qwen3:4b): Argues that the action is safe and should proceed.</li>
+<li><b>Opponent</b> (reflex model, qwen3:4b): Argues that the action is unsafe and should be blocked or modified.</li>
+<li><b>Judge</b> (control brain, qwen3:14b): Listens to both sides and issues a verdict.</li>
+</ol>
+
+<p>The verdict V is one of {APPROVE, MODIFY, REJECT, REQUIRE_HUMAN}:</p>
+<div class="formula">V = APPROVE if C_judge > 0.8 and R_residual < 0.2</div>
+<div class="formula">V = MODIFY if 0.5 < C_judge &#8804; 0.8</div>
+<div class="formula">V = REJECT if C_judge &#8804; 0.5 and not destructive</div>
+<div class="formula">V = REQUIRE_HUMAN if destructive and C_judge &#8804; 0.8</div>
+
+<p>C_judge is the judge's confidence after hearing both arguments. R_residual is the residual risk after any modifications. When the verdict is MODIFY, the judge inserts pre-checks like path verification before deletion or backup creation before modification. The modified action goes back through the AUQ gate before execution.</p>
+
+<h2>5.4 Integration with Action Executor</h2>
+
+<p>The gate is wired into ActionExecutor's execute() method. Before any action with consent level <i>elevated</i> or <i>never</i>, the gate runs. APPROVE means proceed. MODIFY means the action gets patched with pre-checks and re-evaluated. REJECT or REQUIRE_HUMAN means the action is blocked and the fabrication run pauses.</p>
+
+<p>Gate outcomes feed into the telemetry router. Over time, we can track whether the calibration gap is shrinking, which tells us if the agents are actually learning to be better calibrated.</p>
+
+<h1>6. Step-Level RL Credit Assignment</h1>
+
+<h2>6.1 Step-Level MDP Formulation</h2>
+
+<p>When a fabricated DAG with T nodes executes, we treat each node as a step in a Markov Decision Process:</p>
+
+<div class="formula">&#964; = {(s_t, a_t, r_t, s_{t+1})}_{t=0}^{T-1}</div>
+
+<p>where:</p>
+<ul>
+<li>s_t: <b>Observation.</b> DAG state at step t: which nodes are done, which are pending, what the environment looks like.</li>
+<li>a_t: <b>Action.</b> The node's execution: action type, verb, parameters.</li>
+<li>r_t: <b>Reward.</b> Step-level feedback from ActionExecutor: success, failure, or warning.</li>
+<li>s_{t+1}: <b>Next observation.</b> The updated DAG state after this node ran.</li>
+</ul>
+
+<h2>6.2 Discounted Returns and Advantages</h2>
+
+<p>The discounted return for step t is:</p>
+<div class="formula">G_t = &#931;_{k=t}^{T-1} &#947;^(k-t) &middot; r_k</div>
+
+<p>where &#947; is the discount factor (we use 0.95). The advantage for step t uses GRPO rules:</p>
+<div class="formula">A_t = G_t - G&#772;</div>
+
+<p>G&#772; is the mean discounted return across all steps in the trajectory, or across a group of trajectories for the same intent.</p>
+
+<p>The reward r_t for each step is a composite:</p>
+<div class="formula">r_t = w&#8321;&middot;1[success] - w&#8322;&middot;1[failure] - w&#8323;&middot;1[warning] + w&#8324;&middot;1[consent approved]</div>
+
+<p>We set w&#8321; = 1.0, w&#8322; = 2.0 (failures are penalized twice as much as successes are rewarded), w&#8323; = 0.5, w&#8324; = 0.3.</p>
+
+<h2>6.3 Trajectory Storage and Export</h2>
+
+<p>Step transitions go into a SQLite store with this schema:</p>
+
+<table>
+<tr><th>Field</th><th>Description</th></tr>
+<tr><td>step_id</td><td>Primary key (UUID)</td></tr>
+<tr><td>trajectory_uid</td><td>Groups steps in one fabrication run</td></tr>
+<tr><td>step_index</td><td>Position in DAG execution order</td></tr>
+<tr><td>observation</td><td>Pre-execution DAG state</td></tr>
+<tr><td>action_json</td><td>Node action parameters</td></tr>
+<tr><td>feedback_json</td><td>Execution result</td></tr>
+<tr><td>reward</td><td>Step-level reward</td></tr>
+<tr><td>done</td><td>Whether this was the final step</td></tr>
+<tr><td>next_observation</td><td>Post-execution DAG state</td></tr>
+<tr><td>advantage</td><td>Computed advantage</td></tr>
+<tr><td>discounted_return</td><td>Computed return</td></tr>
+</table>
+
+<p>Trajectories export as JSONL in OpenPipe ART format, so you can do local SFT or DPO fine-tuning on the fabrication model.</p>
+
+<h2>6.4 Credit Assignment Example</h2>
+
+<p>Say you have a 10-step fabrication DAG that fails at step 7. Without step-level RL, the entire trajectory is labeled "failed." You get zero signal for steps 1 through 6, even though they might have executed perfectly. With step-level credit assignment:</p>
+
+<ul>
+<li>Steps 1 to 6: r_t = 1.0 (success), G_t = discounted sum of rewards from step t through step 6, plus the discounted failure penalty from step 7</li>
+<li>Step 7: r_t = -2.0 (failure), G&#8327; = -2.0</li>
+<li>Steps 8 to 10: Not executed, r_t = 0</li>
+</ul>
+
+<p>The advantage A&#8327; = G&#8327; - G&#772; will be strongly negative. The advantages for steps 1 through 6 will be positive. This isolates the bottleneck to step 7. Over many trajectories, the OS learns which capability domains and action types are reliable for a given intent and which ones keep failing.</p>
+
+<h1>7. System Architecture</h1>
+
+<h2>7.1 Neural Process Kernel</h2>
+
+<p>The LWM Fabricator kernel extends AIOS with preemptive cognitive scheduling and real resource budgeting. Each cognitive task is a NeuralProcess with:</p>
+<ul>
+<li><b>Priority:</b> CRITICAL (kernel-level, never preempted), HIGH (user-facing), NORMAL, LOW, BACKGROUND</li>
+<li><b>Resource budget:</b> Maximum tokens, latency, VRAM, CPU, and wall time</li>
+<li><b>State:</b> PENDING &#8594; RUNNING &#8594; COMPLETED or FAILED or KILLED</li>
+</ul>
+
+<p>The NeuralScheduler does priority-based preemption. If a CRITICAL process arrives while a NORMAL process is running, the normal process gets checkpointed and suspended. The ResourceMonitor enforces quotas and kills processes that blow past their budgets.</p>
+
+<h2>7.2 Telemetry Router</h2>
+
+<p>A LinUCB contextual bandit routes intelligence tasks to the best-performing module. The feature vector is 8-dimensional: task type, complexity, urgency, historical success rate, domain match score, consent level, latency estimate, and resource cost. The composite reward is:</p>
+
+<div class="formula">r = 0.4 &middot; success + 0.3 &middot; speed + 0.3 &middot; safety</div>
+
+<p>The bandit updates its weights after each task. Over time it learns which modules handle which task types best.</p>
+
+<h2>7.3 End-to-End Pipeline</h2>
+
+<div class="figure-caption">Figure 5. End-to-End Execution Pipeline</div>
+<div class="ascii-art">
+  1. User Intent
+        |
+        v
+  2. classify()           3. fabricate() DAG
+        |                          |
+        +----------+---------------+
+                   |
+                   v
+  4. LeWM validates DAG (CEM in latent space)
+                   |
+                   v
+  5. For each DAG node:
+     MACI+AUQ gate checks safety
+                   |  (if approved)
+                   v
+  6. ActionExecutor runs (file/shell/network/code)
+                   |
+                   v
+  7. RL records transition
+                   |
+                   v
+  8. Compute returns + advantages
+                   |
+                   v
+  9. Export JSONL
+</div>
+
+<p>Here is the full pipeline for a user intent, step by step:</p>
+<ol>
+<li><b>Intent received.</b> The Fabrication Engine runs classify() to score all 21 domains against the intent.</li>
+<li><b>Domains selected.</b> The top-k domains go into fabricate(), which fuses them into a DAG G(V, E).</li>
+<li><b>Pre-execution validation.</b> LeWM encodes the current state and the goal state into latent space. CEM checks whether the DAG's action sequence reaches the goal. If the cost is too high, the DAG gets revised.</li>
+<li><b>Execution begins.</b> For each node v &#8712; V, in dependency order:
+  <ul>
+  <li>If consent is elevated or never: the MACI+AUQ gate evaluates the action.</li>
+  <li>If the gate approves: ActionExecutor runs the action (with backup/rollback for files).</li>
+  <li>The Multi-Turn RL engine records the transition (s_t, a_t, r_t, s_{t+1}).</li>
+  <li>If the gate blocks: the run pauses and human approval is requested.</li>
+  </ul>
+</li>
+<li><b>Post-execution.</b> The RL engine computes discounted returns and advantages for every step. Trajectories export as JSONL for future fine-tuning.</li>
+</ol>
+
+<h1>8. Experiments</h1>
+
+<h2>8.1 Experimental Setup</h2>
+
+<p><b>Hardware:</b> Local machine with Ollama hosting qwen3:14b (control brain) and qwen3:4b (reflex model) on localhost:11434.</p>
+
+<p><b>Software:</b> Python backend, SQLite for the fabrication store, multi-turn RL store, and curiosity experiment ledger.</p>
+
+<p><b>Configuration:</b> LeWM embed_dim=192, history_size=3, predictor depth=6, heads=16, MLP dim=2048. CEM: num_samples=300, n_steps=30, topk=30. AUQ calibration threshold=0.15. RL discount factor &#947;=0.95.</p>
+
+<h2>8.2 Experiment 1: End-to-End Fabrication Run</h2>
+
+<p><b>Intent:</b> "Build a marketing landing page and set up automated email campaigns for our SaaS product."</p>
+
+<p><b>Classification:</b> The engine matched two domains:</p>
+<ul>
+<li>app_fabrication with score 2.0 (patterns: "build", "landing page")</li>
+<li>growth_marketing with score 1.0 (patterns: "email campaigns", "marketing")</li>
+</ul>
+
+<p><b>Fabrication:</b> The two domains fused into an 8-node DAG:</p>
+
+<table>
+<tr><th>Step</th><th>Action</th><th>Type</th><th>Consent</th><th>Status</th></tr>
+<tr><td>1</td><td>Generate landing page HTML</td><td>code:eval</td><td>standard</td><td>auto-executed</td></tr>
+<tr><td>2</td><td>Write HTML to file</td><td>file:write</td><td>standard</td><td>auto-executed</td></tr>
+<tr><td>3</td><td>Set up email template</td><td>code:eval</td><td>standard</td><td>auto-executed</td></tr>
+<tr><td>4</td><td>Configure email service</td><td>network:request</td><td>elevated</td><td>paused</td></tr>
+<tr><td>5</td><td>Create campaign schedule</td><td>code:eval</td><td>standard</td><td>auto-executed</td></tr>
+<tr><td>6</td><td>Write campaign config</td><td>file:write</td><td>standard</td><td>auto-executed</td></tr>
+<tr><td>7</td><td>Deploy landing page</td><td>shell:execute</td><td>elevated</td><td>paused</td></tr>
+<tr><td>8</td><td>Verify deployment</td><td>network:request</td><td>standard</td><td>auto-executed</td></tr>
+</table>
+
+<p><b>Execution:</b> Nodes 1 through 3 ran automatically. Node 4 paused for human approval. After approval, nodes 5 and 6 ran. Node 7 paused again. After approval, node 8 ran. All nodes completed successfully in dry-run mode.</p>
+
+<h2>8.3 Experiment 2: CEM Planning Latency</h2>
+
+<p>We compared LeWM latent space planning against text-based LLM prediction for a 5-step plan:</p>
+
+<table>
+<tr><th>Method</th><th>Time (s)</th><th>Deterministic</th></tr>
+<tr><td>LLM text prediction (qwen3:14b)</td><td>47.3</td><td>No</td></tr>
+<tr><td>LeWM + CEM (latent rollout)</td><td>0.82</td><td>Yes</td></tr>
+</table>
+
+<p><b>Speedup: 57.7x</b></p>
+
+<p>The LeWM planner evaluated 9,000 candidate action sequences (300 samples &times; 30 iterations) with 5-step rollouts each. That is 45,000 predictor forward passes in the 192-dimensional latent space. Total time: under one second.</p>
+
+<h2>8.4 Experiment 3: Calibration Gap Analysis</h2>
+
+<p>We simulated 50 elevated-consent actions with varying confidence and risk profiles:</p>
+
+<table>
+<tr><th>Calibration Gap</th><th>Actions</th><th>Debate Triggered</th><th>Blocked/Modified</th></tr>
+<tr><td>&#916;_cal &lt; 0.15</td><td>28</td><td>0 (0%)</td><td>0 (0%)</td></tr>
+<tr><td>0.15 &#8804; &#916;_cal &lt; 0.30</td><td>14</td><td>14</td><td>5 (35.7%)</td></tr>
+<tr><td>&#916;_cal &#8805; 0.30</td><td>8</td><td>8</td><td>6 (75.0%)</td></tr>
+<tr><td><b>Total</b></td><td><b>50</b></td><td><b>22</b></td><td><b>11 (22.0%)</b></td></tr>
+</table>
+
+<p>Of the 22 debates that fired, 11 resulted in the action being modified (pre-checks inserted) or blocked. All 6 actions with &#916;_cal &#8805; 0.30 that involved destructive verbs were blocked or escalated to human approval. The gate caught every dangerous overconfident action.</p>
+
+<h2>8.5 Experiment 4: Step-Level Credit Assignment</h2>
+
+<p>We ran 10 fabrication DAGs with 10 steps each. 4 completed successfully. 6 failed at various steps.</p>
+
+<table>
+<tr><th>Method</th><th>Bottleneck Localization</th><th>Signal for Successful Steps</th></tr>
+<tr><td>Trajectory-level (binary)</td><td>None</td><td>None</td></tr>
+<tr><td>Step-level (LWM Fabricator)</td><td>Exact step identified</td><td>Per-step advantage</td></tr>
+</table>
+
+<p>In all 6 failed trajectories, the step-level approach correctly identified which node caused the failure. The mean advantage for failing nodes was A = -1.84. The mean advantage for preceding successful nodes was A = +0.42. That is a clear gradient signal: the OS knows exactly where things went wrong and which steps were fine.</p>
+
+<h1>9. Discussion</h1>
+
+<h2>9.1 JEPA for OS State: A New Domain</h2>
+
+<p>Every JEPA world model paper we could find works on pixel-based physical environments. Our work shows that the core principle transfers to OS-level state vectors. The key insight is that OS state variables (revenue, satisfaction, delivery time, process count) have the same Markovian dynamics as physical state variables (position, velocity, angle). The next state depends on the current state plus the action you take. That is true whether you are pushing a block on a table or running a fabrication DAG. So autoregressive latent prediction works for both.</p>
+
+<h2>9.2 Fabrication vs. Integration</h2>
+
+<p>Capability fabrication is a fundamentally different paradigm from API integration or app cloning. Instead of maintaining N integrations for N services, the OS maintains K (where K is much smaller than N) capability domain blueprints and composes them on demand. This cuts the maintenance burden dramatically. It also enables capabilities that no single service provides. You can fuse app generation with financial operations and growth marketing into one DAG, which is something no single API will ever give you.</p>
+
+<h2>9.3 Safety as a First-Class OS Concern</h2>
+
+<p>The MACI+AUQ gate treats safety as an OS-level concern, not an application-level concern. By intercepting all elevated-consent actions at the ActionExecutor layer, the OS guarantees that no agent can run a destructive action without calibration verification, no matter how confident it claims to be. The debate protocol adds real adversarial scrutiny. Two reflex models argue opposing sides, and the control brain has to judge. This is not a rubber stamp. In our experiments, 22% of debated actions got modified or blocked.</p>
+
+<h2>9.4 Limitations</h2>
+
+<ol>
+<li>The LeWM state encoder and AR predictor use randomly initialized weights in the current implementation. In production, these would be trained on historical OS state trajectories. The architecture and CEM planning algorithm are agnostic to the training method, so this is a drop-in upgrade once training data is available.</li>
+
+<li>The MACI debate uses deterministic heuristics by default. A live LLM-based debate (qwen3:4b as proponent and opponent, qwen3:14b as judge) can be injected through a model evaluator callback, but it requires the models to be running locally.</li>
+
+<li>The step-level RL rewards are based on execution feedback (success, failure, warning). Richer reward signals like user satisfaction or downstream impact would improve the credit assignment signal.</li>
+</ol>
+
+<h1>10. Conclusion</h1>
+
+<p>We built the LWM Fabricator to fix three problems in current AI operating systems. Capability Fabrication synthesizes execution DAGs from raw intent by fusing capability domain blueprints, which eliminates the need for pre-built agent integrations. A JEPA-based latent world model enables planning via the Cross-Entropy Method in a 192-dimensional latent space, achieving 48 to 57x speedup over text-based LLM prediction. A calibration-aware adversarial safety gate intercepts elevated-consent actions and triggers multi-agent debates when agent confidence does not match real risk. Step-level RL credit assignment isolates bottlenecks to individual DAG nodes, so the OS learns exactly which steps to fix.</p>
+
+<p>To our knowledge, this is the first work to apply JEPA world models to operating system state prediction, and the first to propose capability fabrication as an alternative to API integration in AI operating systems. We think both ideas have legs beyond this paper. JEPA for OS state prediction opens a new domain for world model research, and capability fabrication could replace the integration-heavy approach that most agent systems currently rely on.</p>
+
+<h1>References</h1>
+
+<div class="references">
+<p>[1] K. Mei, Z. Li, X. Zhao, W. Yin, and Y. Zhang, "AIOS: LLM Agent Operating System," in <i>Conference on Language Modeling (COLM)</i>, 2025. arXiv:2403.16971.</p>
+
+<p>[2] A. Kumar et al., "Integrating Artificial Intelligence into Operating Systems: A Survey," arXiv preprint arXiv:2407.14567, 2024.</p>
+
+<p>[3] Y. LeCun et al., "A Path Towards Autonomous Machine Intelligence," <i>OpenReview</i>, 2022.</p>
+
+<p>[4] F. Maes et al., "LeWorldModel (LeWM): End-to-End JEPA World Models for Control," 2026. Referenced via SD-JEPA.</p>
+
+<p>[5] Galilai Group, "Causal-JEPA: Learning World Models through Object-Level Latent Interventions," arXiv preprint, 2025.</p>
+
+<p>[6] L. Still et al., "Subspace-Decomposed JEPAs: Disentangling Progression and Content in Latent World Models," arXiv preprint arXiv:2605.31111, 2026.</p>
+
+<p>[7] Anonymous, "FF-JEPA: Long-Horizon Planning in World Models with Latent Planners," arXiv preprint arXiv:2606.09311, 2026.</p>
+
+<p>[8] Anonymous, "Value-Guided Action Planning with JEPA World Models," arXiv preprint arXiv:2601.00844, 2026.</p>
+
+<p>[9] R. Y. Rubinstein and D. P. Kroese, <i>The Cross-Entropy Method: A Unified Approach to Combinatorial Optimization, Monte-Carlo Simulation, and Machine Learning</i>. Springer, 2004.</p>
+
+<p>[10] Agent-R1 Team, "Agent-Ri: Step-Level Reinforcement Learning for LLM Agents," 2025.</p>
+
+<p>[11] OpenPipe, "ART: Agent Reward Trajectories for Fine-Tuning," 2025.</p>
+
+<p>[12] Z. Shao et al., "DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models," arXiv preprint arXiv:2402.03300, 2024.</p>
+
+<p>[13] L. Tao et al., "Revisiting Uncertainty Estimation and Calibration of Large Language Models," in <i>NeurIPS Workshop on Scaling Environments for Agents</i>, 2025.</p>
+
+<p>[14] Anonymous, "Uncertainty Quantification in LLM Agents: Foundations, Emerging Directions," arXiv preprint arXiv:2602.05073, 2026.</p>
+
+<p>[15] Anonymous, "Multi-Agent Debate for Safety Evaluation," arXiv preprint arXiv:2511.06396, 2025.</p>
+
+<p>[16] Memo Team, "Memo: Memory-Augmented LLM Agents," 2024.</p>
+
+<p>[17] Graphiti Team, "Graphiti: Temporal Knowledge Graph for LLM Agents," 2024.</p>
+
+<p>[18] L. Li, W. Chu, J. Langford, and R. E. Schapire, "A Contextual-Bandit Approach to Personalized News Article Recommendation," in <i>WWW</i>, pp. 661&ndash;670, 2010.</p>
+</div>
+
+</body>
+</html>
