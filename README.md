@@ -1,4 +1,4 @@
-# LWM Fabricator — Capability Fabrication via Latent World Models
+# LWM Fabricator - Capability Fabrication via Latent World Models
 
 **On-Demand Synthesis and Safe Execution of AI Operating System Capabilities**
 
