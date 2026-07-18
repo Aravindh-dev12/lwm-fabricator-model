@@ -1,2 +1,2 @@
-"""LWM Fabricator: Capability Fabrication via Latent World Models."""
-__version__ = "0.1.0"
+"""NEXUS-LWM OS: Neural Execution and Unified Systems Fabrication Architecture."""
+__version__ = "0.2.0"

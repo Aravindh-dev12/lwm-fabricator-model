@@ -1,0 +1,1 @@
+{"name":"safe-automation","steps":[{"id":"write","capability":"linux.files.write","arguments":{"path":"output/hello.txt","content":"LWM Fabricator OS is running."}},{"id":"verify","capability":"linux.files.read","arguments":{"path":"output/hello.txt"},"depends_on":["write"]}]}
